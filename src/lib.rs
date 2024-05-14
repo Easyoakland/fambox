@@ -1,5 +1,7 @@
 //! Utilities to use a struct with a flexible array member.
 
+mod serde;
+
 extern crate alloc as alloc_;
 use alloc_::alloc;
 use core::{

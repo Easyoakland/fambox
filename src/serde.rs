@@ -4,6 +4,7 @@ use serde::{
     ser::{SerializeStruct, SerializeTuple},
     Deserialize, Serialize,
 };
+use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 /// Serialize slice without length.
@@ -89,8 +90,11 @@ impl<'de, T: serde::Deserialize<'de>, O: std::iter::FromIterator<T>> Deserialize
     }
 }
 
+/// The number of `H::element` before an extra allocation is done while serializing.
+const INLINE_SIZE: usize = 16;
+
 /// Visitor to deserialize the `FamBox`.
-/// Current implementation allocates a temporary vec.
+/// Current implementation allocates an additional buffer if more than [`INLINE_SIZE`] elements.
 #[derive(Debug)]
 struct FamBoxVisitor<H, O: Owner>(PhantomData<(H, O)>);
 impl<'de, H: FamHeader> Visitor<'de> for FamBoxVisitor<H, Owned>
@@ -115,7 +119,7 @@ where
             .next_element_seed(DeserializeNoPrefixSlice {
                 len: header.fam_len(),
                 item: PhantomData::<H::Element>,
-                out: PhantomData::<Vec<H::Element>>,
+                out: PhantomData::<SmallVec<[H::Element; INLINE_SIZE]>>,
             })?
             .ok_or_else(|| de::Error::missing_field("fam elements"))?;
         let mut drain = fam.drain(..);
