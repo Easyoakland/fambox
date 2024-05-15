@@ -9,7 +9,7 @@ readme = "README.md"
 # homepage — URL of the package homepage.
 repository = "https://github.com/Easyoakland/fambox"
 license = "MIT OR Apache-2.0"
-keywords = ["flexible array member", "bindgen", "c", "fam", "ffi"]
+keywords = ["flexarray", "bindgen", "c", "fam", "ffi"]
 categories = ["api-bindings", "development-tools::ffi", "no-std"] # TODO alloc feature then change no-std category to "no-std::no-alloc"
 build = "build.rs"
 include = [
