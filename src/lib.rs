@@ -14,7 +14,7 @@ use core::{
     any,
     marker::PhantomData,
     mem::{self, align_of, align_of_val, size_of, size_of_val},
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 
 #[repr(C)]
@@ -25,40 +25,6 @@ impl<T> __IncompleteArrayField<T> {
     const fn new() -> Self {
         Self([])
     }
-}
-
-/// Construct a slice from [`__IncompleteArrayField`] without breaking stacked borrows in miri.
-/// # Safety
-/// - The `orig_ptr` should have provenance over the entire returned slice.
-/// - `array` should be the start of a valid slice of `T` with a `length >= len`
-///
-/// See <https://github.com/rust-lang/rust-bindgen/issues/1892>
-#[inline]
-unsafe fn slice_from_flexarray<S, T>(
-    orig_ptr: *const S,
-    array: &__IncompleteArrayField<T>,
-    len: usize,
-) -> &[T] {
-    let offs = ptr::from_ref(array) as usize - orig_ptr as usize;
-    let sanitized_ptr = (orig_ptr as *const u8).add(offs) as *const T;
-    core::slice::from_raw_parts(sanitized_ptr, len)
-}
-/// Construct a mut slice from [`__IncompleteArrayField`] without breaking stacked borrows in miri.
-/// # Safety
-/// - The `orig_ptr` should have provenance over the entire returned slice.
-/// - `array` should be the start of a valid slice of `T` with a `length >= len`
-/// - No other reference exists to any element of the slice.
-///
-/// See <https://github.com/rust-lang/rust-bindgen/issues/1892>
-#[inline]
-unsafe fn slice_from_flexarray_mut<S, T>(
-    orig_ptr: *mut S,
-    array: &mut __IncompleteArrayField<T>,
-    len: usize,
-) -> &mut [T] {
-    let offs = ptr::from_ref(array) as usize - orig_ptr as usize;
-    let sanitized_ptr = (orig_ptr as *mut u8).add(offs) as *mut T;
-    core::slice::from_raw_parts_mut(sanitized_ptr, len)
 }
 
 /// A trait to enable usage of a struct which contains a [flexible array member](https://en.wikipedia.org/wiki/Flexible_array_member) in a [`FamBox`].
@@ -304,19 +270,11 @@ impl<H: FamHeader, O: Exclusive> FamBox<H, O> {
     #[inline]
     pub fn fam_mut(&mut self) -> &mut [H::Element] {
         let fam_len = self.header().fam_len();
-        // Safety: By construction `self.buf` has provenance over the entire buffer and `self.buf+size_of::<H>()` is the start of the fam.
+        // Safety: By construction `self.ptr` has provenance over the entire buffer and `self.ptr+size_of::<H>()` is the start of the fam.
         // Taking by `&mut self` on [`Exclusive`] buffer guarantees required exclusivity.
         unsafe {
-            slice_from_flexarray_mut(
-                self.ptr.as_ptr(),
-                self.ptr
-                    .as_ptr()
-                    .add(size_of::<H>())
-                    .cast::<__IncompleteArrayField<_>>()
-                    .as_mut()
-                    .unwrap(),
-                fam_len,
-            )
+            let fam = self.ptr.as_ptr().add(size_of::<H>()).cast();
+            core::slice::from_raw_parts_mut(fam, fam_len)
         }
     }
 
@@ -351,7 +309,7 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
     /// - `ptr` must match the above description.
     /// - buffer must be valid for the lifetime of `Self`.
     /// - `ptr` must be exclusive if `O: Exclusive`.
-    /// - `ptr` must have been allocated with [`alloc::GlobalAlloc`] if `O` = [`Owned`].
+    /// - `ptr` must have been allocated with [`alloc::alloc::GlobalAlloc`] if `O` = [`Owned`].
     ///
     /// The pointer from [`self.leak()`] satisfies all of these.
     pub unsafe fn from_raw(ptr: NonNull<H>) -> Self {
@@ -388,18 +346,10 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
     #[inline]
     pub fn fam(&self) -> &[H::Element] {
         let fam_len = self.header().fam_len();
-        // Safety: By construction `self.buf` has provenance over the entire buffer and `self.buf+size_of::<H>()` is the start of the fam.
+        // Safety: By construction `self.ptr` has provenance over the entire buffer and `self.ptr+size_of::<H>()` is the start of the fam.
         unsafe {
-            slice_from_flexarray(
-                self.ptr.as_ptr(),
-                self.ptr
-                    .as_ptr()
-                    .add(size_of::<H>())
-                    .cast::<__IncompleteArrayField<_>>()
-                    .as_ref()
-                    .unwrap(),
-                fam_len,
-            )
+            let fam = self.ptr.as_ptr().add(size_of::<H>()).cast();
+            core::slice::from_raw_parts(fam, fam_len)
         }
     }
     #[inline]
