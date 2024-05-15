@@ -1,13 +1,21 @@
 [package]
-name = "fam"
+name = "fambox"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { workspace = true }
-smallvec = { workspace = true }
+serde = { version = "1.0.200", default-features = false, optional = true }
+smallvec = { version = "1.13.2", features = ["const_generics", "const_new"], optional = true }
 
 [dev-dependencies]
-bincode.workspace = true
+bincode = { version = "1.3.3", default-features = false }
+serde = { version = "1.0.200", default-features = false, features = ["derive"] }
+fambox = { path = ".", features = ["serde"] }
+
+[build-dependencies]
+version_check = "0.9.4"
+
+[features]
+serde = ["dep:serde", "dep:smallvec"]

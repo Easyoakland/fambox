@@ -1,5 +1,11 @@
 //! Utilities to use a struct with a flexible array member.
 
+// Enable `cargo +nightly doc --all-features` to show all items and their feature requirements.
+// `doccfg` is set by the `build.rs`
+#![cfg_attr(doccfg, feature(doc_auto_cfg))]
+#![cfg_attr(doccfg, feature(doc_cfg))]
+
+#[cfg(any(feature = "serde"))]
 mod serde;
 
 extern crate alloc as alloc_;
@@ -64,11 +70,11 @@ unsafe fn slice_from_flexarray_mut<S, T>(
 ///
 /// or else undefined behavior may occur.
 ///
-/// 2. Additionally, if `p` is a valid pointer to `H` then `p` + `size_of::<H>` must be a valid pointer to an `E`.
-/// This can be handled by placing a [`__IncompleteArrayField<E>`] or `[E; 0]` as the last field of the `repr(C)` `H`.
+/// 2. Additionally, if `p` is a valid pointer to `H` then `p` + `size_of::<H>` must be a valid pointer to an `H::Element`.
+/// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or `[H::Element; 0]` as the last field of the `repr(C)` `H`.
 pub unsafe trait FamHeader {
     type Element;
-    /// The length, in `size_of::<E>()` increments, of the flexible array member.
+    /// The length, in `size_of::<H::Element>()` increments, of the flexible array member.
     fn fam_len(&self) -> usize;
     /// The total size of this struct, in bytes, including the header and the flexible array member.
     #[inline]
@@ -182,13 +188,13 @@ impl<H: FamHeader> FamBox<H, Owned> {
             "invalid impl: size_of::<H>() > total size"
         );
         if size == 0 {
-            // Safety: Since both `H` and `E` are ZST, a dangling pointer is valid for the length of `H` followed by as many `E` as fit in a slice.
+            // Safety: Since both `H` and `H::Element` are ZST, a dangling pointer is valid for the length of `H` followed by as many `H::Element` as fit in a slice.
             return unsafe { FamBox::from_raw(NonNull::dangling()) };
         }
 
         let layout = alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
         // Safety: `layout` is non-zero in size. Alignment of `H` matches the allocation,
-        // and the following `[E]` is seperated from `H` by the necessary padding as required in the `FamHeader<E>` trait.
+        // and the following `[H::Element]` is seperated from `H` by the necessary padding as required in the `FamHeader` trait.
         let Some(ptr) = NonNull::new(unsafe { alloc::alloc(layout) }.cast::<H>()) else {
             alloc::handle_alloc_error(layout);
         };
@@ -206,10 +212,10 @@ impl<H: FamHeader> FamBox<H, Owned> {
             // Initialize the buffer
             let mut ptr = ptr.cast::<H::Element>();
             for i in 0..fam_len {
-                // Safety: ptr is valid for writing `E`.
+                // Safety: ptr is valid for writing `H::Element`.
                 // If panic occurs here in `cb` a leak will happen, but [`Self`] hasn't been constructed, so its destructor won't run and no preparation is needed.
                 unsafe { ptr.write(cb(i)) };
-                // Safety: Allocation was made so that `ptr` is valid at `ptr+1`. `ptr` will be at the end of one `E` and/or the start of another `E`.
+                // Safety: Allocation was made so that `ptr` is valid at `ptr+1`. `ptr` will be at the end of one `H::Element` and/or the start of another `H::Element`.
                 unsafe { ptr = ptr.add(1) };
             }
         }
@@ -227,9 +233,9 @@ impl<H: FamHeader> FamBox<H, Owned> {
 
 /* BorrowedMut impls */
 impl<'a, H: FamHeader> FamBox<H, BorrowedMut<'a>> {
-    /// Create a `[FamBox<H, BorrowedMut<'a>>]` from a reference to a buffer containing `H` followed by `[E]` of `H::fam_len()` length.
+    /// Create a `[FamBox<H, BorrowedMut<'a>>]` from a reference to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
     /// # Safety
-    /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `E`s).
+    /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `H::Element`s).
     /// - `slice` must be valid for the lifetime of `Self`.
     #[inline]
     pub unsafe fn from_slice_mut(slice: &'a mut [u8]) -> Self {
@@ -257,9 +263,9 @@ impl<'a, H: FamHeader> Clone for FamBox<H, BorrowedShared<'a>> {
     }
 }
 impl<'a, H: FamHeader> FamBox<H, BorrowedShared<'a>> {
-    /// Create a `[FamBox<H, BorrowedShared<'a>>]` from a reference to a buffer containing `H` followed by `[E]` of `H::fam_len()` length.
+    /// Create a `[FamBox<H, BorrowedShared<'a>>]` from a reference to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
     /// # Safety
-    /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `E`s).
+    /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `H::Element`s).
     /// - `slice` must be valid for the lifetime of `Self`.
     #[inline]
     pub unsafe fn from_slice(slice: &'a [u8]) -> Self {
@@ -339,7 +345,7 @@ where
     }
 }
 impl<H: FamHeader, O: Owner> FamBox<H, O> {
-    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `[E]` of `H::fam_len()` length.
+    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
     /// # Safety
     /// - `ptr` must match the above description.
     /// - buffer must be valid for the lifetime of `Self`.
@@ -354,7 +360,7 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
         }
     }
 
-    /// Copy to a [`FamBox<E,H,Owned>`] by copying the buffer into a newly allocated buffer.
+    /// Copy to a [`FamBox<H,Owned>`] by copying the buffer into a newly allocated buffer.
     // Can't implement `ToOwned` because of conflict with blanket `impl<T: Clone> ToOwned for T {}`
     pub fn into_owned(&self) -> FamBox<H, Owned>
     where
@@ -365,9 +371,9 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
         FamBox::from_fn(header.clone(), |i| fam[i].clone())
     }
 
-    /// Underlying buffer.
+    /// Get a reference to the underlying buffer.
     /// # Safety
-    /// - Only safe if `H` and `E` don't have padding bytes.
+    /// - Only safe if `H` and `H::Element` don't have uninit bytes (e.g. padding).
     #[inline]
     pub unsafe fn buffer(&self) -> &[u8] {
         // Safety: Valid len by contract of [`FamHeader`] trait.
@@ -423,16 +429,17 @@ impl<H: FamHeader, O: Owner> Drop for FamBox<H, O> {
     }
 }
 /* Send/Sync impls */
-// Exclusive [`FamBox`] can be used to get `&H`/`&mut H`/`&E`/`&mut E`.
+// Exclusive [`FamBox`] can be used to get `&H`/`&mut H`/`&H::Element`/`&mut H::Element`.
 unsafe impl<H: FamHeader + Send> Send for FamBox<H, Owned> where H::Element: Send {}
-unsafe impl<H: FamHeader + Sync> Sync for FamBox<H, Owned> where H::Element: Sync {}
-// Exclusive [`&FamBox`] can be used to get `&H`/`&E`.
 unsafe impl<'a, H: FamHeader + Send> Send for FamBox<H, BorrowedMut<'a>> where H::Element: Send {}
+
+// Exclusive [`&FamBox`] can be used to get `&H`/`&H::Element`.
+unsafe impl<H: FamHeader + Sync> Sync for FamBox<H, Owned> where H::Element: Sync {}
 unsafe impl<'a, H: FamHeader + Sync> Sync for FamBox<H, BorrowedMut<'a>> where H::Element: Sync {}
 
-// Shared [`FamBox`] can be used to get `&H`/`&E`.
+// Shared [`FamBox`] can be used to get `&H`/`&H::Element`.
 unsafe impl<'a, H: FamHeader + Sync> Send for FamBox<H, BorrowedShared<'a>> where H::Element: Sync {}
-// Shared [`&FamBox`] can be used to get `&H`/`&E`.
+// Shared [`&FamBox`] can be used to get `&H`/`&H::Element`.
 unsafe impl<'a, H: FamHeader + Sync> Sync for FamBox<H, BorrowedShared<'a>> where H::Element: Sync {}
 
 pub type FamBoxOwned<H> = FamBox<H, Owned>;
