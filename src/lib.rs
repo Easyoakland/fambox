@@ -37,7 +37,7 @@ impl<T> __IncompleteArrayField<T> {
 /// or else undefined behavior may occur.
 ///
 /// 2. Additionally, if `p` is a valid pointer to `H` then `p` + `size_of::<H>` must be a valid pointer to an `H::Element`.
-/// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or `[H::Element; 0]` as the last field of the `repr(C)` `H`.
+/// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or [`H::Element; 0`] as the last field of the `repr(C)` `H`.
 pub unsafe trait FamHeader {
     type Element;
     /// The length, in `size_of::<H::Element>()` increments, of the flexible array member.
@@ -112,7 +112,7 @@ pub struct FamBox<H: FamHeader, O: Owner> {
     ty: PhantomData<(H, O)>,
 }
 
-/* Owned impls */
+/** [`Owned`] impls */
 impl<H: FamHeader + Clone> Clone for FamBox<H, Owned>
 where
     H::Element: Clone,
@@ -123,6 +123,7 @@ where
         self.into_owned()
     }
 }
+/** [`Owned`] impls */
 impl<H: FamHeader + Default> Default for FamBox<H, Owned>
 where
     H::Element: Default,
@@ -131,6 +132,7 @@ where
         Self::from_fn(H::default(), |_| H::Element::default())
     }
 }
+/** [`Owned`] impls */
 impl<H: FamHeader + PartialEq> PartialEq for FamBox<H, Owned>
 where
     H::Element: PartialEq,
@@ -140,6 +142,7 @@ where
         self.as_parts() == other.as_parts()
     }
 }
+/** [`Owned`] impls */
 impl<H: FamHeader> FamBox<H, Owned> {
     /// Allocate a new [`Owned`] buffer and create [`Self`] from a valid header and a callback for initializing the flexible array member.
     ///
@@ -161,7 +164,7 @@ impl<H: FamHeader> FamBox<H, Owned> {
         let layout =
             alloc::alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
         // Safety: `layout` is non-zero in size. Alignment of `H` matches the allocation,
-        // and the following `[H::Element]` is seperated from `H` by the necessary padding as required in the `FamHeader` trait.
+        // and the following [`H::Element`] is seperated from `H` by the necessary padding as required in the `FamHeader` trait.
         let Some(ptr) = NonNull::new(unsafe { alloc::alloc::alloc(layout) }.cast::<H>()) else {
             alloc::alloc::handle_alloc_error(layout);
         };
@@ -193,17 +196,16 @@ impl<H: FamHeader> FamBox<H, Owned> {
     }
 
     /// Leak [`Self`]. Like [`Self::buffer`] but always safe regardless of stored data.
-    pub fn leak<'a>(self) -> NonNull<H> {
+    pub fn leak(self) -> NonNull<H> {
         mem::ManuallyDrop::new(self).ptr.cast()
     }
 }
 
-/* BorrowedMut impls */
+/** [`BorrowedMut`] impls */
 impl<'a, H: FamHeader> FamBox<H, BorrowedMut<'a>> {
-    /// Create a `[FamBox<H, BorrowedMut<'a>>]` from a reference to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
+    /// Create a [`FamBoxMut<H>`] from a reference to a buffer containing `H` followed by `H::Element` of `H::fam_len()` length.
     /// # Safety
     /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `H::Element`s).
-    /// - `slice` must be valid for the lifetime of `Self`.
     #[inline]
     pub unsafe fn from_slice_mut(slice: &'a mut [u8]) -> Self {
         // Check that either the alignment is correct or `align_offset()` gave up.
@@ -218,7 +220,7 @@ impl<'a, H: FamHeader> FamBox<H, BorrowedMut<'a>> {
     }
 }
 
-/* BorrowedShared impls */
+/** [`BorrowedShared`] impls */
 impl<'a, H: FamHeader> Clone for FamBox<H, BorrowedShared<'a>> {
     /// Since the buffer is shared, clones the pointer but not the underlying buffer.
     #[inline]
@@ -229,11 +231,11 @@ impl<'a, H: FamHeader> Clone for FamBox<H, BorrowedShared<'a>> {
         }
     }
 }
+/** [`BorrowedShared`] impls */
 impl<'a, H: FamHeader> FamBox<H, BorrowedShared<'a>> {
-    /// Create a `[FamBox<H, BorrowedShared<'a>>]` from a reference to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
+    /// Create a [`FamBoxShared<H>`] from a reference to a buffer containing `H` followed by `H::Element` of `H::fam_len()` length.
     /// # Safety
     /// - `slice` must match the above description (i.e. aligned to `H`, containing `H` followed by `H::fam_len()` `H::Element`s).
-    /// - `slice` must be valid for the lifetime of `Self`.
     #[inline]
     pub unsafe fn from_slice(slice: &'a [u8]) -> Self {
         // Check that either the alignment is correct or `align_offset()` gave up.
@@ -248,7 +250,7 @@ impl<'a, H: FamHeader> FamBox<H, BorrowedShared<'a>> {
     }
 }
 
-/* Borrowed impls */
+/** [`Borrowed`] impls */
 impl<H: FamHeader + PartialEq, O: Borrowed> PartialEq for FamBox<H, O>
 where
     H::Element: PartialEq,
@@ -259,7 +261,7 @@ where
     }
 }
 
-/* Exclusive impls */
+/** [`Exclusive`] impls */
 impl<H: FamHeader, O: Exclusive> FamBox<H, O> {
     #[inline]
     pub fn header_mut(&mut self) -> &mut H {
@@ -289,7 +291,7 @@ impl<H: FamHeader, O: Exclusive> FamBox<H, O> {
     }
 }
 
-/* General impls ([`Owned`] or [`BorrowedMut`] or [`BorrowedShared`]) */
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
 impl<H: FamHeader + core::fmt::Debug, O: Owner + core::fmt::Debug + Default> core::fmt::Debug
     for FamBox<H, O>
 where
@@ -303,15 +305,16 @@ where
             .finish()
     }
 }
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
 impl<H: FamHeader, O: Owner> FamBox<H, O> {
-    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
+    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `H::Element` of `H::fam_len()` length.
     /// # Safety
     /// - `ptr` must match the above description.
-    /// - buffer must be valid for the lifetime of `Self`.
+    /// - the buffer must be valid for the lifetime of `Self`.
     /// - `ptr` must be exclusive if `O: Exclusive`.
     /// - `ptr` must have been allocated with [`alloc::alloc::GlobalAlloc`] if `O` = [`Owned`].
     ///
-    /// The pointer from [`self.leak()`] satisfies all of these.
+    /// The pointer from [`Self::leak()`] satisfies all of these.
     pub unsafe fn from_raw(ptr: NonNull<H>) -> Self {
         Self {
             ty: PhantomData,
@@ -319,7 +322,7 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
         }
     }
 
-    /// Copy to a [`FamBox<H,Owned>`] by copying the buffer into a newly allocated buffer.
+    /// Copy to a [`FamBoxOwned<H>`] by copying the buffer into a newly allocated buffer.
     // Can't implement `ToOwned` because of conflict with blanket `impl<T: Clone> ToOwned for T {}`
     pub fn into_owned(&self) -> FamBox<H, Owned>
     where
@@ -358,6 +361,7 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
         (unsafe { self.ptr.cast().as_ref() }, self.fam())
     }
 }
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
 impl<H: FamHeader, O: Owner> Drop for FamBox<H, O> {
     #[inline]
     fn drop(&mut self) {
@@ -394,9 +398,12 @@ unsafe impl<'a, H: FamHeader + Sync> Send for FamBox<H, BorrowedShared<'a>> wher
 // Shared [`&FamBox`] can be used to get `&H`/`&H::Element`.
 unsafe impl<'a, H: FamHeader + Sync> Sync for FamBox<H, BorrowedShared<'a>> where H::Element: Sync {}
 
+/// A [`FamBox`] which owns its buffer.
 pub type FamBoxOwned<H> = FamBox<H, Owned>;
+/// A [`FamBox`] which has exclusive access to a buffer.
+pub type FamBoxMut<'a, H> = FamBox<H, BorrowedMut<'a>>;
+/// A [`FamBox`] which has shared access to a buffer.
 pub type FamBoxShared<'a, H> = FamBox<H, BorrowedShared<'a>>;
-pub type FamBoxMut<'a, H> = FamBox<H, BorrowedShared<'a>>;
 
 #[cfg(test)]
 mod tests {
