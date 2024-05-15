@@ -1,12 +1,13 @@
 [package]
 name = "fambox"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Easyoakland"]
-description = "FamBox datastrucutre for ergonomically and safetly using c's flexible array members"
-# rust-version — The minimal supported Rust version.
+description = "FamBox data structure for ergonomically and safely using c's flexible array members"
+documentation = "https://docs.rs/fambox/"
+# rust-version - The minimal supported Rust version.
 readme = "README.md"
-# homepage — URL of the package homepage.
+# homepage - URL of the package homepage.
 repository = "https://github.com/Easyoakland/fambox"
 license = "MIT OR Apache-2.0"
 keywords = ["flexarray", "bindgen", "c", "fam", "ffi"]
@@ -20,6 +21,8 @@ include = [
   "build.rs"
 ]
 
+[package.metadata.docs.rs]
+features = ["serde"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
