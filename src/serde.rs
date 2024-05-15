@@ -149,7 +149,6 @@ where
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "std")]
     fn ser_de() {
         use crate::{FamBoxOwned, FamHeader};
         use bincode::Options;
