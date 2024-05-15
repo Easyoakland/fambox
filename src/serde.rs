@@ -1,11 +1,11 @@
 use crate::{FamBox, FamHeader, Owned, Owner};
+use core::marker::PhantomData;
 use serde::{
     de::{self, DeserializeSeed, Visitor},
     ser::{SerializeStruct, SerializeTuple},
     Deserialize, Serialize,
 };
 use smallvec::SmallVec;
-use std::marker::PhantomData;
 
 /// Serialize slice without length.
 struct SerializeSliceAsTuple<'a, T>(&'a [T]);
@@ -48,7 +48,7 @@ struct DeserializeNoPrefixSlice<Item, Collection> {
 impl<'de, T: Deserialize<'de>, O: FromIterator<T>> Visitor<'de> for DeserializeNoPrefixSlice<T, O> {
     type Value = O;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         formatter.write_str("a sequence of values without a length prefix")
     }
     fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
@@ -77,7 +77,7 @@ impl<'de, T: Deserialize<'de>, O: FromIterator<T>> Visitor<'de> for DeserializeN
     }
 }
 
-impl<'de, T: serde::Deserialize<'de>, O: std::iter::FromIterator<T>> DeserializeSeed<'de>
+impl<'de, T: serde::Deserialize<'de>, O: core::iter::FromIterator<T>> DeserializeSeed<'de>
     for DeserializeNoPrefixSlice<T, O>
 {
     type Value = O;
@@ -99,12 +99,12 @@ const INLINE_SIZE: usize = 16;
 struct FamBoxVisitor<H, O: Owner>(PhantomData<(H, O)>);
 impl<'de, H: FamHeader> Visitor<'de> for FamBoxVisitor<H, Owned>
 where
-    H: Deserialize<'de> + std::fmt::Debug,
-    H::Element: Deserialize<'de> + std::fmt::Debug,
+    H: Deserialize<'de> + core::fmt::Debug,
+    H::Element: Deserialize<'de> + core::fmt::Debug,
 {
     type Value = FamBox<H, Owned>;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         formatter.write_str("sequence of elements H then [H::Element]")
     }
 
@@ -130,9 +130,9 @@ where
 
 impl<'de, H: FamHeader + 'de> Deserialize<'de> for FamBox<H, Owned>
 where
-    H: Deserialize<'de> + Clone + std::fmt::Debug,
-    H: Clone + std::fmt::Debug,
-    H::Element: Deserialize<'de> + Clone + std::fmt::Debug,
+    H: Deserialize<'de> + Clone + core::fmt::Debug,
+    H: Clone + core::fmt::Debug,
+    H::Element: Deserialize<'de> + Clone + core::fmt::Debug,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -148,12 +148,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{FamBoxOwned, FamHeader};
-    use bincode::Options;
-    use std::io::Cursor;
-
     #[test]
+    #[cfg(feature = "std")]
     fn ser_de() {
+        use crate::{FamBoxOwned, FamHeader};
+        use bincode::Options;
+        extern crate std;
+        use std::io::Cursor;
         #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         struct S(u16, [u8; 0]);
         unsafe impl FamHeader for S {
@@ -168,7 +169,7 @@ mod tests {
         let opt = bincode::DefaultOptions::new()
             .with_big_endian()
             .with_fixint_encoding();
-        let mut buf = vec![0u8; fambox.header().total_size()];
+        let mut buf = alloc::vec![0u8; fambox.header().total_size()];
         opt.serialize_into(buf.as_mut_slice(), &fambox).unwrap();
         let de: FamBoxOwned<S> = opt.deserialize_from(Cursor::new(buf)).unwrap();
         assert_eq!(fambox, de);

@@ -1,15 +1,15 @@
 //! Utilities to use a struct with a flexible array member.
 
 // Enable `cargo +nightly doc --all-features` to show all items and their feature requirements.
-// `doccfg` is set by the `build.rs`
+// `doccfg` is set by the `build.rs` when supported (nightly)
 #![cfg_attr(doccfg, feature(doc_auto_cfg))]
 #![cfg_attr(doccfg, feature(doc_cfg))]
+#![no_std]
 
-#[cfg(any(feature = "serde"))]
+#[cfg(feature = "serde")]
 mod serde;
 
-extern crate alloc as alloc_;
-use alloc_::alloc;
+extern crate alloc;
 use core::{
     any,
     marker::PhantomData,
@@ -102,8 +102,8 @@ pub struct Owned;
 /// The [`FamBox`] has an exclusive reference to its buffer.
 pub struct BorrowedMut<'a>(core::marker::PhantomData<&'a ()>);
 // Don't write Phantom.
-impl<'a> std::fmt::Debug for BorrowedMut<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Debug for BorrowedMut<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BorrowedMut").finish()
     }
 }
@@ -111,8 +111,8 @@ impl<'a> std::fmt::Debug for BorrowedMut<'a> {
 /// The [`FamBox`] has a shared reference to its buffer.
 pub struct BorrowedShared<'a>(core::marker::PhantomData<&'a ()>);
 // Don't write Phantom.
-impl<'a> std::fmt::Debug for BorrowedShared<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Debug for BorrowedShared<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BorrowedShared").finish()
     }
 }
@@ -192,11 +192,12 @@ impl<H: FamHeader> FamBox<H, Owned> {
             return unsafe { FamBox::from_raw(NonNull::dangling()) };
         }
 
-        let layout = alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
+        let layout =
+            alloc::alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
         // Safety: `layout` is non-zero in size. Alignment of `H` matches the allocation,
         // and the following `[H::Element]` is seperated from `H` by the necessary padding as required in the `FamHeader` trait.
-        let Some(ptr) = NonNull::new(unsafe { alloc::alloc(layout) }.cast::<H>()) else {
-            alloc::handle_alloc_error(layout);
+        let Some(ptr) = NonNull::new(unsafe { alloc::alloc::alloc(layout) }.cast::<H>()) else {
+            alloc::alloc::handle_alloc_error(layout);
         };
 
         // Write header
@@ -336,7 +337,7 @@ impl<H: FamHeader + core::fmt::Debug, O: Owner + core::fmt::Debug + Default> cor
 where
     H::Element: core::fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FamBox")
             .field("ty", &O::default())
             .field("header", self.header())
@@ -423,9 +424,10 @@ impl<H: FamHeader, O: Owner> Drop for FamBox<H, O> {
         if size == 0 {
             return;
         }
-        let layout = alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
+        let layout =
+            alloc::alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
         // Safety: [`Self`] is `Owned` and therefore was created with the same underlying allocator and layout.
-        unsafe { alloc::dealloc(self.ptr.as_ptr(), layout) };
+        unsafe { alloc::alloc::dealloc(self.ptr.as_ptr(), layout) };
     }
 }
 /* Send/Sync impls */
@@ -449,6 +451,8 @@ pub type FamBoxMut<'a, H> = FamBox<H, BorrowedShared<'a>>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::String;
+    use core::fmt::Write;
 
     /// Test struct.
     #[repr(C)]
@@ -539,14 +543,15 @@ mod tests {
     };
 
     unsafe fn copy_for_test(buffer: &[u8]) -> &'static mut [u8] {
-        let layout = alloc::Layout::from_size_align(buffer.len(), align_of::<MsgHeader>()).unwrap();
-        let ptr = alloc::alloc(layout);
+        let layout =
+            alloc::alloc::Layout::from_size_align(buffer.len(), align_of::<MsgHeader>()).unwrap();
+        let ptr = alloc::alloc::alloc(layout);
         core::ptr::copy(buffer.as_ptr(), ptr, buffer.len());
         core::slice::from_raw_parts_mut(ptr, buffer.len())
     }
     unsafe fn free_for_test(ptr: *mut u8, len: usize) {
-        let layout = alloc::Layout::from_size_align(len, align_of::<MsgHeader>()).unwrap();
-        alloc::dealloc(ptr, layout);
+        let layout = alloc::alloc::Layout::from_size_align(len, align_of::<MsgHeader>()).unwrap();
+        alloc::alloc::dealloc(ptr, layout);
     }
 
     #[test]
@@ -578,9 +583,10 @@ mod tests {
         let share = unsafe { FamBox::<MsgNoPadding, _>::from_slice(own.buffer()) };
         let buffer_mut = unsafe { copy_for_test(own.buffer()) };
         let exl = unsafe { FamBox::<MsgNoPadding, _>::from_slice_mut(buffer_mut) };
-        println!("{own:?}");
-        println!("{share:?}");
-        println!("{exl:?}");
+        let mut s = String::new();
+        writeln!(s, "{own:?}").unwrap();
+        writeln!(s, "{share:?}").unwrap();
+        writeln!(s, "{exl:?}").unwrap();
 
         drop(exl);
         unsafe { free_for_test(buffer_mut.as_mut_ptr(), buffer_mut.len()) };
@@ -613,9 +619,10 @@ mod tests {
         assert_eq!(unsafe { own.buffer() }.len(), 0);
         assert_eq!(own.as_parts(), share.as_parts());
         assert_eq!(own.as_parts(), exl.as_parts());
-        println!("{own:?}");
-        println!("{share:?}");
-        println!("{exl:?}");
+        let mut s = String::new();
+        writeln!(s, "{own:?}").unwrap();
+        writeln!(s, "{share:?}").unwrap();
+        writeln!(s, "{exl:?}").unwrap();
     }
     #[test]
     fn zst_fam_element() {
@@ -634,9 +641,10 @@ mod tests {
         assert_eq!(unsafe { own.buffer() }.len(), 1);
         assert_eq!(own.as_parts(), share.as_parts());
         assert_eq!(own.as_parts(), exl.as_parts());
-        println!("{own:?}");
-        println!("{share:?}");
-        println!("{exl:?}");
+        let mut s = String::new();
+        writeln!(s, "{own:?}").unwrap();
+        writeln!(s, "{share:?}").unwrap();
+        writeln!(s, "{exl:?}").unwrap();
     }
     #[test]
     fn zst_header() {
@@ -655,9 +663,10 @@ mod tests {
         assert_eq!(unsafe { own.buffer() }.len(), 3);
         assert_eq!(own.as_parts(), share.as_parts());
         assert_eq!(own.as_parts(), exl.as_parts());
-        println!("{own:?}");
-        println!("{share:?}");
-        println!("{exl:?}");
+        let mut s = String::new();
+        writeln!(s, "{own:?}").unwrap();
+        writeln!(s, "{share:?}").unwrap();
+        writeln!(s, "{exl:?}").unwrap();
     }
     #[test]
     fn leak_from_raw() {

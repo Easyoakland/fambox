@@ -2,6 +2,24 @@
 name = "fambox"
 version = "0.1.0"
 edition = "2021"
+authors = ["Easyoakland"]
+description = "FamBox datastrucutre for ergonomically and safetly using c's flexible array members"
+# rust-version — The minimal supported Rust version.
+readme = "README.md"
+# homepage — URL of the package homepage.
+repository = "https://github.com/Easyoakland/fambox"
+license = "MIT OR Apache-2.0"
+keywords = ["flexible array member", "bindgen", "c", "fam", "ffi"]
+categories = ["api-bindings", "development-tools::ffi", "no-std"] # TODO alloc feature then change no-std category to "no-std::no-alloc"
+build = "build.rs"
+include = [
+  "Cargo.toml",
+  "LICENSE-*",
+  "README.md",
+  "src/**/*",
+  "build.rs"
+]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,11 +29,14 @@ smallvec = { version = "1.13.2", features = ["const_generics", "const_new"], opt
 
 [dev-dependencies]
 bincode = { version = "1.3.3", default-features = false }
+fambox = { path = ".", features = ["serde", "std"] }
 serde = { version = "1.0.200", default-features = false, features = ["derive"] }
-fambox = { path = ".", features = ["serde"] }
 
 [build-dependencies]
 version_check = "0.9.4"
 
 [features]
+default = ["alloc"]
 serde = ["dep:serde", "dep:smallvec"]
+std = ["alloc"] # currently only used for testing
+alloc = [] # TODO
