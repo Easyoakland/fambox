@@ -289,7 +289,7 @@ where
 /* Exclusive impls */
 impl<H: FamHeader, O: Exclusive> FamBox<H, O> {
     #[inline]
-    pub fn header_mut(&mut self) -> &H {
+    pub fn header_mut(&mut self) -> &mut H {
         // Safety: The head of the buffer contains a valid `H` and buffer is [`Exclusive`].
         unsafe { self.ptr.cast().as_mut() }
     }
