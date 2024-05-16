@@ -6,7 +6,27 @@ use core::{
     ptr::{self, NonNull},
 };
 
-/// Builder for [`crate::FamBoxOwned`].
+/// Incremental builder for [`crate::FamBoxOwned`] to create a [`crate::FamBoxOwned`] one element at a time.
+/** ```rust
+# use core::ops::ControlFlow;
+use fambox::FamBoxBuilder;
+struct H(u8, [u16; 0]);
+unsafe impl fambox::FamHeader for H {
+    type Element = u16;
+
+    fn fam_len(&self) -> usize {
+        self.0.into()
+    }
+}
+
+let ControlFlow::Continue(builder) = FamBoxBuilder::new(H(2, [])) else { unreachable!() };
+let ControlFlow::Continue(builder) = builder.add_element(1) else { unreachable!() };
+let ControlFlow::Break(builder) = builder.add_element(2) else { unreachable!() };
+let fambox = builder.build();
+assert_eq!(fambox.header().0, 2);
+assert_eq!(fambox.fam(), [1, 2]);
+```
+*/
 pub struct FamBoxBuilder<H: FamHeader, const DONE: bool> {
     // Pointer to start of backing buffer including fam.
     // If `None` haven't allocated yet.
@@ -17,6 +37,7 @@ pub struct FamBoxBuilder<H: FamHeader, const DONE: bool> {
     ty: PhantomData<H>,
 }
 impl<H: FamHeader, const DONE: bool> FamBoxBuilder<H, DONE> {
+    /// DONE generic parameter. The builder is full when done is `true`.
     pub const DONE: bool = DONE;
 }
 impl<H: FamHeader> FamBoxBuilder<H, false> {

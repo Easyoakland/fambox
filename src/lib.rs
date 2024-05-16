@@ -185,10 +185,10 @@ mod serde;
 
 /// Builder to create a new `FamBoxOwned` 1 element at a time.
 // Also repurposed for its destructor
-pub mod builder;
+mod builder;
+pub use builder::FamBoxBuilder;
 
 extern crate alloc;
-use builder::FamBoxBuilder;
 use core::{
     any,
     marker::PhantomData,
@@ -870,12 +870,6 @@ mod tests {
         impl Drop for DropCnt {
             fn drop(&mut self) {
                 self.0.set(self.0.get() + 1);
-            }
-        }
-        struct AssertDropCorrectAmount;
-        impl Drop for AssertDropCorrectAmount {
-            fn drop(&mut self) {
-                todo!()
             }
         }
         extern crate std;

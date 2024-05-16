@@ -1,11 +1,10 @@
-use crate::{FamBox, FamHeader, Owned, Owner};
-use core::marker::PhantomData;
+use crate::{builder::FamBoxBuilder, FamBox, FamHeader, Owned, Owner};
+use core::{convert::Infallible, marker::PhantomData, ops::ControlFlow};
 use serde::{
     de::{self, DeserializeSeed, Visitor},
     ser::{SerializeStruct, SerializeTuple},
     Deserialize, Serialize,
 };
-use smallvec::SmallVec;
 
 /// Serialize slice without length.
 struct SerializeSliceAsTuple<'a, T>(&'a [T]);
@@ -40,25 +39,31 @@ where
 }
 
 /// Deserialize a slice without a stored prefix with runtime length.
-struct DeserializeNoPrefixSlice<Item, Collection> {
+struct DeserializeNoPrefixSlice<T, Output, UnfinishedState, F>
+where
+    F: FnMut(UnfinishedState, T) -> ControlFlow<Output, UnfinishedState>,
+{
     len: usize,
-    item: PhantomData<Item>,
-    out: PhantomData<Collection>,
+    f: F,
+    unfinished_state: UnfinishedState,
+    ty: PhantomData<T>,
 }
-impl<'de, T: Deserialize<'de>, O: FromIterator<T>> Visitor<'de> for DeserializeNoPrefixSlice<T, O> {
-    type Value = O;
+impl<'de, T: Deserialize<'de>, Output, State, F: FnMut(State, T) -> ControlFlow<Output, State>>
+    Visitor<'de> for DeserializeNoPrefixSlice<T, Output, State, F>
+{
+    type Value = Output;
 
     fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         formatter.write_str("a sequence of values without a length prefix")
     }
-    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+    fn visit_seq<A>(mut self, seq: A) -> Result<Self::Value, A::Error>
     where
         A: de::SeqAccess<'de>,
     {
-        /// Convert seq into iterator asssuming heterogeneity.
-        struct HeterogeneousSeq<'de, A: de::SeqAccess<'de>, T>(A, PhantomData<(&'de (), T)>);
+        /// Convert seq into iterator asssuming homogeneity (1 type).
+        struct HomogeneousSeq<'de, A: de::SeqAccess<'de>, T>(A, PhantomData<(&'de (), T)>);
         impl<'de, A: de::SeqAccess<'de>, T: serde::Deserialize<'de>> Iterator
-            for HeterogeneousSeq<'de, A, T>
+            for HomogeneousSeq<'de, A, T>
         {
             type Item = Result<T, A::Error>;
 
@@ -73,14 +78,48 @@ impl<'de, T: Deserialize<'de>, O: FromIterator<T>> Visitor<'de> for DeserializeN
                 }
             }
         }
-        HeterogeneousSeq(seq, PhantomData).collect::<Result<Self::Value, A::Error>>()
+        /// Error message. Using a struct because Serde requires the error message to impl `Visitor`.
+        struct ExpectedLen(usize);
+        impl Visitor<'_> for ExpectedLen {
+            type Value = Infallible;
+
+            fn expecting(&self, formatter: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
+                writeln!(formatter, "{} elements", self.0)
+            }
+        }
+
+        let mut iter = HomogeneousSeq(seq, PhantomData).into_iter();
+        let mut i = 0;
+        // Take items until an error is received from the iterator (Error),
+        // the iterator runs out prematurely (Error), or the function breaks (final output)
+        loop {
+            match (self.f)(
+                self.unfinished_state,
+                match iter.next() {
+                    Some(x) => match x {
+                        Ok(x) => x,
+                        Err(e) => break Err(e),
+                    },
+                    None => break Err(de::Error::invalid_length(i, &ExpectedLen(self.len))),
+                },
+            ) {
+                ControlFlow::Continue(unfinished) => self.unfinished_state = unfinished,
+                ControlFlow::Break(finished) => break Ok(finished),
+            }
+            i += 1;
+        }
     }
 }
 
-impl<'de, T: serde::Deserialize<'de>, O: core::iter::FromIterator<T>> DeserializeSeed<'de>
-    for DeserializeNoPrefixSlice<T, O>
+impl<
+        'de,
+        T: serde::Deserialize<'de>,
+        Output,
+        UnfinishedState,
+        F: FnMut(UnfinishedState, T) -> ControlFlow<Output, UnfinishedState>,
+    > DeserializeSeed<'de> for DeserializeNoPrefixSlice<T, Output, UnfinishedState, F>
 {
-    type Value = O;
+    type Value = Output;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -89,9 +128,6 @@ impl<'de, T: serde::Deserialize<'de>, O: core::iter::FromIterator<T>> Deserializ
         deserializer.deserialize_tuple(self.len, self)
     }
 }
-
-/// The number of `H::element` before an extra allocation is done while serializing.
-const INLINE_SIZE: usize = 16;
 
 /// Visitor to deserialize the `FamBox`.
 /// Current implementation allocates an additional buffer if more than [`INLINE_SIZE`] elements.
@@ -115,16 +151,22 @@ where
         let header: H = seq
             .next_element()?
             .ok_or_else(|| de::Error::missing_field("header"))?;
-        let mut fam = seq
+        let fam_len = header.fam_len();
+        let builder = match FamBoxBuilder::new(header) {
+            core::ops::ControlFlow::Continue(unfinished) => unfinished,
+            core::ops::ControlFlow::Break(finished) => return Ok(finished.build()),
+        };
+        Ok(seq
             .next_element_seed(DeserializeNoPrefixSlice {
-                len: header.fam_len(),
-                item: PhantomData::<H::Element>,
-                out: PhantomData::<SmallVec<[H::Element; INLINE_SIZE]>>,
+                len: fam_len,
+                unfinished_state: builder,
+                f: |builder: FamBoxBuilder<H, false>, x: H::Element| match builder.add_element(x) {
+                    ControlFlow::Continue(unfinished) => ControlFlow::Continue(unfinished),
+                    ControlFlow::Break(finished) => ControlFlow::Break(finished.build()),
+                },
+                ty: PhantomData,
             })?
-            .ok_or_else(|| de::Error::missing_field("fam elements"))?;
-        let mut drain = fam.drain(..);
-
-        Ok(Self::Value::from_fn(header, |_| drain.next().unwrap()))
+            .ok_or_else(|| de::Error::missing_field("fam elements"))?)
     }
 }
 

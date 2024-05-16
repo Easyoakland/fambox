@@ -28,7 +28,6 @@ features = ["serde"]
 
 [dependencies]
 serde = { version = "1.0.200", default-features = false, optional = true }
-smallvec = { version = "1.13.2", features = ["const_generics", "const_new"], optional = true }
 
 [dev-dependencies]
 bincode = { version = "1.3.3", default-features = false }
@@ -40,5 +39,5 @@ version_check = "0.9.4"
 
 [features]
 default = ["alloc"]
-serde = ["dep:serde", "dep:smallvec"]
+serde = ["dep:serde"]
 alloc = [] # TODO
