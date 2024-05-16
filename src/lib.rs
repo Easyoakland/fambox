@@ -309,18 +309,9 @@ impl<H: FamHeader + Default> Default for FamBox<H, Owned>
 where
     H::Element: Default,
 {
+    #[inline]
     fn default() -> Self {
         Self::from_fn(H::default(), |_| H::Element::default())
-    }
-}
-/** [`Owned`] impls */
-impl<H: FamHeader + PartialEq> PartialEq for FamBox<H, Owned>
-where
-    H::Element: PartialEq,
-{
-    /// Compares parts.
-    fn eq(&self, other: &Self) -> bool {
-        self.as_parts() == other.as_parts()
     }
 }
 /** [`Owned`] impls */
@@ -401,18 +392,45 @@ impl<'a, H: FamHeader> FamBox<H, BorrowedShared<'a>> {
         }
     }
 }
-
-/** [`Borrowed`] impls */
-impl<H: FamHeader + PartialEq, O: Borrowed> PartialEq for FamBox<H, O>
+/** [`BorrowedShared`] impls */
+impl<'a, H: FamHeader + PartialEq> PartialEq for FamBox<H, BorrowedShared<'a>>
 where
     H::Element: PartialEq,
 {
     /// Compares pointer addresses and if not equal compares parts.
+    // Comparing pointers is a fast-path check since the pointed to buffer might be the same between `self` and `other`
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.ptr == other.ptr || self.as_parts() == other.as_parts()
     }
 }
 
+/** [`Exclusive`] impls */
+impl<H: FamHeader + PartialEq, O: Exclusive> PartialEq for FamBox<H, O>
+where
+    H::Element: PartialEq,
+{
+    /// Compares parts.
+    // ptr can't be the same so it's not worth checking as a fast path.
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.as_parts() == other.as_parts()
+    }
+}
+/** [`Exclusive`] impls */
+impl<H: FamHeader, O: Exclusive> AsMut<H> for FamBox<H, O> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut H {
+        self.header_mut()
+    }
+}
+/** [`Exclusive`] impls */
+impl<H: FamHeader, O: Exclusive> AsMut<[H::Element]> for FamBox<H, O> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [H::Element] {
+        self.fam_mut()
+    }
+}
 /** [`Exclusive`] impls */
 impl<H: FamHeader, O: Exclusive> FamBox<H, O> {
     #[inline]
@@ -455,6 +473,65 @@ where
             .field("header", self.header())
             .field("fam", &self.fam())
             .finish()
+    }
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<H: FamHeader + Eq, O: Owner> Eq for FamBox<H, O>
+where
+    H::Element: Eq,
+    Self: PartialEq,
+{
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<Header: FamHeader + core::hash::Hash, O: Owner> core::hash::Hash for FamBox<Header, O>
+where
+    Header::Element: core::hash::Hash,
+{
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_parts().hash(state);
+    }
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<H: FamHeader + PartialOrd, O: Owner> PartialOrd for FamBox<H, O>
+where
+    H::Element: PartialOrd,
+    Self: PartialEq,
+{
+    /// Partial ordering is implemented with [lexographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
+    /// like the [`PartialOrd`] [derive macro](https://doc.rust-lang.org/std/cmp/trait.Ord.html#derivable),
+    /// equivalent to a tuple of `(header, fam)`
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.as_parts().partial_cmp(&other.as_parts())
+    }
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<H: FamHeader + Ord, O: Owner> Ord for FamBox<H, O>
+where
+    H::Element: Ord,
+    Self: PartialEq,
+{
+    /// Partial ordering is implemented with [lexographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
+    /// like the [`PartialOrd`] [derive macro](https://doc.rust-lang.org/std/cmp/trait.Ord.html#derivable),
+    /// equivalent to a tuple of `(header, fam)`
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_parts().cmp(&other.as_parts())
+    }
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<H: FamHeader, O: Owner> AsRef<H> for FamBox<H, O> {
+    #[inline]
+    fn as_ref(&self) -> &H {
+        self.header()
+    }
+}
+/** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
+impl<H: FamHeader, O: Owner> AsRef<[H::Element]> for FamBox<H, O> {
+    #[inline]
+    fn as_ref(&self) -> &[H::Element] {
+        self.fam()
     }
 }
 /** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
@@ -596,6 +673,19 @@ mod tests {
         }
     }
     impl Eq for MsgHeader {}
+    impl PartialOrd for MsgHeader {
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            match self.this.partial_cmp(&other.this) {
+                Some(core::cmp::Ordering::Equal) => {}
+                ord => return ord,
+            }
+            match self.len.partial_cmp(&other.len) {
+                Some(core::cmp::Ordering::Equal) => {}
+                ord => return ord,
+            }
+            self.that.partial_cmp(&other.that)
+        }
+    }
 
     // Safety: matches trait contract
     unsafe impl FamHeader for MsgHeader {
@@ -917,5 +1007,40 @@ mod tests {
         assert_eq!(item.0.get(), 3);
         assert!(H_DROPPED.load(core::sync::atomic::Ordering::Relaxed));
         assert_eq!(h_drop.get(), 1);
+    }
+    #[test]
+    fn as_ref_as_mut() {
+        // use core::convert::AsRef;
+        let mut own = FamBox::from_fn(TEST_MSG, |i| i as _);
+        let _header: &MsgHeader = own.as_ref();
+        let _fam: &[<MsgHeader as FamHeader>::Element] = own.as_ref();
+        let header_mut: &mut MsgHeader = own.as_mut();
+        header_mut.that += 1;
+        let fam_mut: &mut [<MsgHeader as FamHeader>::Element] = own.as_mut();
+        fam_mut[3] = 4;
+    }
+    #[test]
+    fn eq_test() {
+        let mut own = FamBox::from_fn(TEST_MSG, |i| i as _);
+        let own2 = FamBox::from_fn(TEST_MSG, |i| i as _);
+        assert_eq!(own, own2);
+        own.fam_mut()[3] += 1;
+        assert_ne!(own, own2);
+        own.fam_mut()[3] -= 1;
+        assert_eq!(own, own2);
+        own.header_mut().that += 1;
+        assert_ne!(own, own2);
+        own.header_mut().that -= 1;
+        assert_eq!(own, own2);
+    }
+    #[test]
+    fn ord_test() {
+        let mut own = FamBox::from_fn(TEST_MSG, |i| i as _);
+        let mut own2 = FamBox::from_fn(TEST_MSG, |i| i as _);
+        assert_eq!(own, own2);
+        own.fam_mut()[3] += 1;
+        assert!(own > own2);
+        own2.header_mut().that += 1;
+        assert!(own < own2);
     }
 }
