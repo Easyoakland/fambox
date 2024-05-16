@@ -135,8 +135,8 @@ impl<
 struct FamBoxVisitor<H, O: Owner>(PhantomData<(H, O)>);
 impl<'de, H: FamHeader> Visitor<'de> for FamBoxVisitor<H, Owned>
 where
-    H: Deserialize<'de> + core::fmt::Debug,
-    H::Element: Deserialize<'de> + core::fmt::Debug,
+    H: Deserialize<'de>,
+    H::Element: Deserialize<'de>,
 {
     type Value = FamBox<H, Owned>;
 
@@ -172,9 +172,8 @@ where
 
 impl<'de, H: FamHeader + 'de> Deserialize<'de> for FamBox<H, Owned>
 where
-    H: Deserialize<'de> + Clone + core::fmt::Debug,
-    H: Clone + core::fmt::Debug,
-    H::Element: Deserialize<'de> + Clone + core::fmt::Debug,
+    H: Deserialize<'de>,
+    H::Element: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
