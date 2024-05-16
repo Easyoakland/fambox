@@ -181,11 +181,16 @@ unsafe { free_in_c(ptr) }
 #[cfg(feature = "serde")]
 mod serde;
 
+/// Builder to create a new `FamBoxOwned` 1 element at a time.
+// Also repurposed for its destructor
+pub mod builder;
+
 extern crate alloc;
+use builder::FamBoxBuilder;
 use core::{
     any,
     marker::PhantomData,
-    mem::{self, align_of, align_of_val, size_of, size_of_val},
+    mem::{self, align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
     ptr::NonNull,
 };
 
@@ -329,7 +334,7 @@ impl<H: FamHeader> FamBox<H, Owned> {
             "invalid impl: size_of::<H>() > total size"
         );
         if size == 0 {
-            // Safety: Since both `H` and `H::Element` are ZST, a dangling pointer is valid for the length of `H` followed by as many `H::Element` as fit in a slice.
+            // Safety: Since both `H` and `[H::Element]` are zero size, a dangling pointer is valid.
             return unsafe { FamBox::from_raw(NonNull::dangling()) };
         }
 
@@ -367,9 +372,9 @@ impl<H: FamHeader> FamBox<H, Owned> {
         unsafe { FamBox::from_raw(ptr) }
     }
 
-    /// Leak [`Self`]. Like [`Self::buffer`] but always safe regardless of stored data.
+    /// Leak [`Self`].
     pub fn leak(self) -> NonNull<H> {
-        mem::ManuallyDrop::new(self).ptr.cast()
+        ManuallyDrop::new(self).ptr.cast()
     }
 }
 
@@ -546,14 +551,8 @@ impl<H: FamHeader, O: Owner> Drop for FamBox<H, O> {
             return;
         }
 
-        let size = self.header().total_size();
-        if size == 0 {
-            return;
-        }
-        let layout =
-            alloc::alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
-        // Safety: [`Self`] is `Owned` and therefore was created with the same underlying allocator and layout.
-        unsafe { alloc::alloc::dealloc(self.ptr.as_ptr(), layout) };
+        // Safety: self is valid and so self.ptr is a valid pointer to the buffer.
+        drop(unsafe { FamBoxBuilder::from_built(self.ptr.cast::<H>()) });
     }
 }
 /* Send/Sync impls */
@@ -580,8 +579,8 @@ pub type FamBoxShared<'a, H> = FamBox<H, BorrowedShared<'a>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::String;
-    use core::fmt::Write;
+    use alloc::{rc::Rc, string::String};
+    use core::{cell::Cell, fmt::Write, ops::ControlFlow, sync::atomic::AtomicBool};
 
     /// Test struct.
     #[repr(C)]
@@ -683,6 +682,47 @@ mod tests {
         alloc::alloc::dealloc(ptr, layout);
     }
 
+    #[test]
+    fn fambox_builder() {
+        let ControlFlow::Continue(mut builder) = FamBoxBuilder::new(TEST_MSG) else {
+            panic!("done early")
+        };
+        let mut i = 0;
+        let mut next = builder.add_element(0);
+        while let ControlFlow::Continue(x) = next {
+            i += 1;
+            builder = x;
+            next = builder.add_element(i);
+        }
+        let ControlFlow::Break(x) = next else {
+            panic!("loop ended")
+        };
+        x.build();
+    }
+    #[test]
+    fn fambox_builder_zst() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        struct ZST;
+        unsafe impl FamHeader for ZST {
+            type Element = ();
+            fn fam_len(&self) -> usize {
+                0
+            }
+        }
+        let ControlFlow::Break(builder) = FamBoxBuilder::new(ZST) else {
+            panic!("done late")
+        };
+        let fambox = builder.build();
+        drop(fambox);
+    }
+    #[test]
+    fn fambox_builder_drop() {
+        let ControlFlow::Continue(builder) = FamBoxBuilder::new(TEST_MSG) else {
+            panic!("done early")
+        };
+        let next = builder.add_element(0);
+        drop(next)
+    }
     #[test]
     fn parts_with_padding() {
         let own = FamBox::from_fn(TEST_MSG, |i| i as _);
@@ -803,5 +843,34 @@ mod tests {
         let own_clone = own.clone();
         let from_leak = unsafe { FamBox::from_raw(own.leak()) };
         assert_eq!(own_clone, from_leak);
+    }
+    #[test]
+    fn drop_cnt() {
+        struct H(u8, [DropCnt; 0]);
+        unsafe impl FamHeader for H {
+            type Element = DropCnt;
+
+            fn fam_len(&self) -> usize {
+                self.0.into()
+            }
+        }
+        static H_DROPPED: AtomicBool = AtomicBool::new(false);
+        impl Drop for H {
+            fn drop(&mut self) {
+                H_DROPPED.store(true, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        #[derive(Debug, Clone)]
+        struct DropCnt(Rc<Cell<u8>>);
+        impl Drop for DropCnt {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let item = DropCnt(Rc::new(Cell::new(0)));
+        let own = FamBox::from_fn(H(13, []), |_| item.clone());
+        drop(own);
+        assert_eq!(item.0.get(), 13);
+        assert!(H_DROPPED.load(core::sync::atomic::Ordering::Relaxed));
     }
 }
