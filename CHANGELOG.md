@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Added
+- Implement most standard traits that apply to `FamBox` variants
+
+## Fixed
+- `FamBoxBuilder` behavior corrected for when fam is empty.
+- `Deserialize` bounds relaxed.
+
 ## [0.1.2] - 2024-05-15
 
 ### Added
