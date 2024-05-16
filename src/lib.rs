@@ -498,7 +498,7 @@ where
     H::Element: PartialOrd,
     Self: PartialEq,
 {
-    /// Partial ordering is implemented with [lexographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
+    /// Partial ordering is implemented with [lexicographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
     /// like the [`PartialOrd`] [derive macro](https://doc.rust-lang.org/std/cmp/trait.Ord.html#derivable),
     /// equivalent to a tuple of `(header, fam)`
     #[inline]
@@ -512,7 +512,7 @@ where
     H::Element: Ord,
     Self: PartialEq,
 {
-    /// Partial ordering is implemented with [lexographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
+    /// Partial ordering is implemented with [lexicographic](https://en.wikipedia.org/wiki/Lexicographic_order) ordering,
     /// like the [`PartialOrd`] [derive macro](https://doc.rust-lang.org/std/cmp/trait.Ord.html#derivable),
     /// equivalent to a tuple of `(header, fam)`
     #[inline]
