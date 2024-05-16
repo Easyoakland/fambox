@@ -193,6 +193,7 @@ use core::{
     any,
     marker::PhantomData,
     mem::{self, align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
+    ops::ControlFlow,
     ptr::NonNull,
 };
 
@@ -325,53 +326,24 @@ where
 impl<H: FamHeader> FamBox<H, Owned> {
     /// Allocate a new [`Owned`] buffer and create [`Self`] from a valid header and a callback for initializing the flexible array member.
     ///
-    /// `cb` is passed the index being initialized. If `cb` panics a memory leak may occur.
+    /// `cb` is passed the index being initialized.
     pub fn from_fn<F>(header: H, mut cb: F) -> Self
     where
         F: FnMut(usize) -> H::Element,
     {
-        let size = header.total_size();
-        debug_assert!(
-            size_of::<H>() <= size,
-            "invalid impl: size_of::<H>() > total size"
-        );
-        if size == 0 {
-            // Safety: Since both `H` and `[H::Element]` are zero size, a dangling pointer is valid.
-            return unsafe { FamBox::from_raw(NonNull::dangling()) };
-        }
-
-        let layout =
-            alloc::alloc::Layout::from_size_align(size, align_of::<H>()).expect("invalid layout");
-        // Safety: `layout` is non-zero in size. Alignment of `H` matches the allocation,
-        // and the following [`H::Element`] is seperated from `H` by the necessary padding as required in the `FamHeader` trait.
-        let Some(ptr) = NonNull::new(unsafe { alloc::alloc::alloc(layout) }.cast::<H>()) else {
-            alloc::alloc::handle_alloc_error(layout);
+        // By using the builder the memory will be correctly freed in the case of a `cb` panic.
+        let mut builder = match FamBoxBuilder::new(header) {
+            ControlFlow::Continue(builder) => builder,
+            ControlFlow::Break(x) => return x.build(),
         };
-
-        // Write header
-        let fam_len = header.fam_len();
-        // Safety: Allocation was created so that an `H` is valid at the start of the buffer.
-        unsafe { ptr.as_ptr().write(header) };
-
-        // Write fam
-        {
-            let ptr = ptr.as_ptr();
-            // Already wrote header so skip the header including.
-            let ptr = unsafe { ptr.add(1) };
-            // Initialize the buffer
-            let mut ptr = ptr.cast::<H::Element>();
-            for i in 0..fam_len {
-                // Safety: ptr is valid for writing `H::Element`.
-                // If panic occurs here in `cb` a leak will happen, but [`Self`] hasn't been constructed, so its destructor won't run and no preparation is needed.
-                unsafe { ptr.write(cb(i)) };
-                // Safety: Allocation was made so that `ptr` is valid at `ptr+1`. `ptr` will be at the end of one `H::Element` and/or the start of another `H::Element`.
-                unsafe { ptr = ptr.add(1) };
-            }
+        let mut i = 0;
+        loop {
+            builder = match builder.add_element(cb(i)) {
+                ControlFlow::Continue(unfinished) => unfinished,
+                ControlFlow::Break(finished) => return finished.build(),
+            };
+            i += 1;
         }
-
-        // Safety: Finished initializing buffer and `ptr` is allocated as valid.
-        // `ptr` is valid for `'static` and exclusive.
-        unsafe { FamBox::from_raw(ptr) }
     }
 
     /// Leak [`Self`].
@@ -582,7 +554,9 @@ pub type FamBoxShared<'a, H> = FamBox<H, BorrowedShared<'a>>;
 mod tests {
     use super::*;
     use alloc::{rc::Rc, string::String};
-    use core::{cell::Cell, fmt::Write, ops::ControlFlow, sync::atomic::AtomicBool};
+    use core::{
+        cell::Cell, fmt::Write, ops::ControlFlow, panic::AssertUnwindSafe, sync::atomic::AtomicBool,
+    };
 
     /// Test struct.
     #[repr(C)]
@@ -874,5 +848,51 @@ mod tests {
         drop(own);
         assert_eq!(item.0.get(), 13);
         assert!(H_DROPPED.load(core::sync::atomic::Ordering::Relaxed));
+    }
+    #[test]
+    fn callback_panic() {
+        struct H(u8, [DropCnt; 0]);
+        unsafe impl FamHeader for H {
+            type Element = DropCnt;
+
+            fn fam_len(&self) -> usize {
+                self.0.into()
+            }
+        }
+        static H_DROPPED: AtomicBool = AtomicBool::new(false);
+        impl Drop for H {
+            fn drop(&mut self) {
+                H_DROPPED.store(true, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        #[derive(Debug, Clone)]
+        struct DropCnt(Rc<Cell<u8>>);
+        impl Drop for DropCnt {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        struct AssertDropCorrectAmount;
+        impl Drop for AssertDropCorrectAmount {
+            fn drop(&mut self) {
+                todo!()
+            }
+        }
+        extern crate std;
+        let item = DropCnt(Rc::new(Cell::new(0)));
+        if !std::panic::catch_unwind(AssertUnwindSafe(|| {
+            drop(FamBox::from_fn(H(4, []), |i| {
+                if i > 2 {
+                    panic!("oops")
+                } else {
+                    item.clone()
+                }
+            }))
+        }))
+        .is_err()
+        {
+            panic!("didn't panic when constructing")
+        }
+        assert_eq!(item.0.get(), 3);
     }
 }
