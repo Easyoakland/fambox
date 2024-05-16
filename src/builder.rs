@@ -6,7 +6,7 @@ use core::{
     ptr::{self, NonNull},
 };
 
-/// Builder for [`FamBoxOwned`].
+/// Builder for [`crate::FamBoxOwned`].
 pub struct FamBoxBuilder<H: FamHeader, const DONE: bool> {
     // Pointer to start of backing buffer including fam.
     // If `None` haven't allocated yet.
@@ -17,7 +17,7 @@ pub struct FamBoxBuilder<H: FamHeader, const DONE: bool> {
     ty: PhantomData<H>,
 }
 impl<H: FamHeader, const DONE: bool> FamBoxBuilder<H, DONE> {
-    pub const DONE: bool = Self::DONE;
+    pub const DONE: bool = DONE;
 }
 impl<H: FamHeader> FamBoxBuilder<H, false> {
     /// Create a new [`FamBoxBuilder`]. If `H.total_size()==0` then done building and return `Continue::(FamBoxBuilder<H, false>)` otherwise return `Break(FamBoxBuilder<H, true>)`.
