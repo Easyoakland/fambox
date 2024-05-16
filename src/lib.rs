@@ -676,6 +676,30 @@ mod tests {
         x.build();
     }
     #[test]
+    fn fambox_builder_no_elements() {
+        struct H(u8, [u32; 0]);
+        unsafe impl FamHeader for H {
+            type Element = u32;
+
+            fn fam_len(&self) -> usize {
+                self.0.into()
+            }
+        }
+        assert!(FamBoxBuilder::new(H(0, [])).is_break())
+    }
+    #[test]
+    fn fambox_builder_zst_header_and_some_elements() {
+        struct H([u32; 0]);
+        unsafe impl FamHeader for H {
+            type Element = u32;
+
+            fn fam_len(&self) -> usize {
+                5
+            }
+        }
+        assert!(FamBoxBuilder::new(H([])).is_continue())
+    }
+    #[test]
     fn fambox_builder_zst() {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         struct ZST;

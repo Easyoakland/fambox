@@ -41,17 +41,24 @@ impl<H: FamHeader, const DONE: bool> FamBoxBuilder<H, DONE> {
     pub const DONE: bool = DONE;
 }
 impl<H: FamHeader> FamBoxBuilder<H, false> {
-    /// Create a new [`FamBoxBuilder`]. If `H.total_size()==0` then done building and return `Continue::(FamBoxBuilder<H, false>)` otherwise return `Break(FamBoxBuilder<H, true>)`.
+    /// Create a new [`FamBoxBuilder`]. If `header.fam_len()==0` then done building and return `Break(FamBoxBuilder<H, true>)` otherwise return `Continue(FamBoxBuilder<H, false>)`.
     pub fn new(header: H) -> ControlFlow<FamBoxBuilder<H, true>, FamBoxBuilder<H, false>> {
         let size = header.total_size();
+        let fam_len = header.fam_len();
         debug_assert!(
             size_of::<H>() <= size,
             "invalid impl: size_of::<H>() > total size"
         );
         if size == 0 {
             // Safety: Since both `H` and `H::Element` are ZST, a dangling pointer is valid for the length of `H` followed by as many `H::Element` as fit in a slice.
-            return {
+            return if fam_len == 0 {
                 ControlFlow::Break(FamBoxBuilder::<H, true> {
+                    ptr: NonNull::dangling(),
+                    next_write: NonNull::dangling(),
+                    ty: PhantomData,
+                })
+            } else {
+                ControlFlow::Continue(FamBoxBuilder::<H, false> {
                     ptr: NonNull::dangling(),
                     next_write: NonNull::dangling(),
                     ty: PhantomData,
@@ -70,17 +77,30 @@ impl<H: FamHeader> FamBoxBuilder<H, false> {
         // Write header
         // Safety: Allocation was created so that an `H` is valid at the start of the buffer.
         unsafe { ptr.as_ptr().write(header) };
+        // Already wrote header so skip the header.
+        // By the `FamHeader` trait contract ptr+1 is valid for `H::Element`.
+        let next_write = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(1)).cast() };
 
         // Construct `Self` so the buffer is cleaned up on panic.
-        ControlFlow::Continue(FamBoxBuilder {
-            ptr: ptr.cast(),
-            // Already wrote header so skip the header.
-            // By the `FamHeader` trait contract ptr+1 is valid for `H::Element`.
-            next_write: unsafe { NonNull::new_unchecked(ptr.as_ptr().add(1)).cast() },
-            ty: PhantomData,
-        })
+        if fam_len == 0 {
+            // If no elements then done
+            ControlFlow::Break(FamBoxBuilder {
+                ptr: ptr.cast(),
+                next_write,
+                ty: PhantomData,
+            })
+        } else {
+            // Otherwise still need more elements.
+            ControlFlow::Continue(FamBoxBuilder {
+                ptr: ptr.cast(),
+                // Already wrote header so skip the header.
+                // By the `FamHeader` trait contract ptr+1 is valid for `H::Element`.
+                next_write,
+                ty: PhantomData,
+            })
+        }
     }
-    /// Create a new [`FamBoxBuilder`]. If `H.total_size()==0` then done building and return `Continue::(FamBoxBuilder<H, false>)` otherwise return `Break(FamBoxBuilder<H, true>)`.
+    /// Create a new [`FamBoxBuilder`]. If more elements are needed return `Continue(FamBoxBuilder<H, false>)`, otherwise, if done building return `Break(FamBoxBuilder<H, true>)`.
     pub fn add_element(
         mut self,
         val: H::Element,
