@@ -219,6 +219,7 @@ impl<T> __IncompleteArrayField<T> {
 /// 2. Additionally, if `p` is a valid pointer to `H` then `p` + `size_of::<H>` must be a valid pointer to an `H::Element`.
 /// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or [`H::Element; 0`] as the last field of the `repr(C)` `H`.
 pub unsafe trait FamHeader {
+    /// The element type of the flexible array member.
     type Element;
     /// The length, in `size_of::<H::Element>()` increments, of the flexible array member.
     fn fam_len(&self) -> usize;

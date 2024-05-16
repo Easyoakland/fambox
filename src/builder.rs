@@ -100,7 +100,7 @@ impl<H: FamHeader> FamBoxBuilder<H, false> {
             })
         }
     }
-    /// Create a new [`FamBoxBuilder`]. If more elements are needed return `Continue(FamBoxBuilder<H, false>)`, otherwise, if done building return `Break(FamBoxBuilder<H, true>)`.
+    /// Add an element to this [`FamBoxBuilder`]. If more elements are needed return `Continue(FamBoxBuilder<H, false>)`, otherwise, if done building return `Break(FamBoxBuilder<H, true>)`.
     pub fn add_element(
         mut self,
         val: H::Element,
@@ -145,6 +145,7 @@ impl<H: FamHeader> FamBoxBuilder<H, true> {
             ty: PhantomData,
         }
     }
+    /// Consume the builder and construct a new [`FamBox<H, Owned>`]
     pub fn build(self) -> FamBox<H, Owned> {
         // Safety: Because Self::Done is true the buffer is fully initialized.
         unsafe { FamBox::from_raw(ManuallyDrop::new(self).ptr.cast()) }
