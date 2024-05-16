@@ -876,7 +876,7 @@ mod tests {
     }
     #[test]
     fn callback_panic() {
-        struct H(u8, [DropCnt; 0]);
+        struct H(u8, Rc<Cell<u8>>, [DropCnt; 0]);
         unsafe impl FamHeader for H {
             type Element = DropCnt;
 
@@ -888,6 +888,7 @@ mod tests {
         impl Drop for H {
             fn drop(&mut self) {
                 H_DROPPED.store(true, core::sync::atomic::Ordering::Relaxed);
+                self.1.set(self.1.get() + 1);
             }
         }
         #[derive(Debug, Clone)]
@@ -899,8 +900,9 @@ mod tests {
         }
         extern crate std;
         let item = DropCnt(Rc::new(Cell::new(0)));
+        let h_drop = Rc::new(Cell::new(0));
         if !std::panic::catch_unwind(AssertUnwindSafe(|| {
-            drop(FamBox::from_fn(H(4, []), |i| {
+            drop(FamBox::from_fn(H(4, h_drop.clone(), []), |i| {
                 if i > 2 {
                     panic!("oops")
                 } else {
@@ -913,5 +915,7 @@ mod tests {
             panic!("didn't panic when constructing")
         }
         assert_eq!(item.0.get(), 3);
+        assert!(H_DROPPED.load(core::sync::atomic::Ordering::Relaxed));
+        assert_eq!(h_drop.get(), 1);
     }
 }
