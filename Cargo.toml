@@ -1,6 +1,6 @@
 [package]
 name = "fambox"
-version = "0.1.2" # when releasing, update version number and changelog
+version = "0.2.0" # when releasing, update version number and changelog
 edition = "2021"
 authors = ["Easyoakland"]
 description = "FamBox data structure for ergonomically and safely using c's flexible array members"
