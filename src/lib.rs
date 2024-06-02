@@ -86,13 +86,13 @@ mod encapsulated_struct {
                 elements: __IncompleteArrayField::new(),
             })
         }
-        pub fn length(&self) -> &u16 {
-            &self.length
+        pub fn length(&self) -> u16 {
+            self.length
         }
     }
 
-    /// Safety:
-    /// `protocol_msg` doesn't expose a mutable setter which would make the length inconsistent.
+    // Safety:
+    // `protocol_msg` doesn't expose a mutable setter which would make the length inconsistent.
     unsafe impl FamHeader for protocol_msg {
         type Element = u8;
 
@@ -110,7 +110,7 @@ let header = encapsulated_struct::protocol_msg::new(1, 2, data_buffer.len())?;
 assert_eq!(header_and_fam.header(), &header);
 assert_eq!(header_and_fam.fam(), data_buffer);
 assert_eq!(
-    usize::from(*header_and_fam.header().length()),
+    usize::from(header_and_fam.header().length()),
     size_of::<protocol_msg>() + core::mem::size_of_val(&data_buffer)
 );
 # Ok(())
