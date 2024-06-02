@@ -332,13 +332,13 @@ impl<H: FamHeader> FamBox<H, Owned> {
         // By using the builder the memory will be correctly freed in the case of a `cb` panic.
         let mut builder = match FamBoxBuilder::new(header) {
             ControlFlow::Continue(builder) => builder,
-            ControlFlow::Break(x) => return x.build(),
+            ControlFlow::Break(finished) => return finished,
         };
         let mut i = 0;
         loop {
             builder = match builder.add_element(cb(i)) {
                 ControlFlow::Continue(unfinished) => unfinished,
-                ControlFlow::Break(finished) => return finished.build(),
+                ControlFlow::Break(finished) => return finished,
             };
             i += 1;
         }
@@ -767,10 +767,9 @@ mod tests {
             builder = x;
             next = builder.add_element(i);
         }
-        let ControlFlow::Break(x) = next else {
+        let ControlFlow::Break(_fambox) = next else {
             panic!("loop ended")
         };
-        x.build();
     }
     #[test]
     fn fambox_builder_no_elements() {
@@ -806,11 +805,9 @@ mod tests {
                 0
             }
         }
-        let ControlFlow::Break(builder) = FamBoxBuilder::new(ZST) else {
+        let ControlFlow::Break(_fambox) = FamBoxBuilder::new(ZST) else {
             panic!("done late")
         };
-        let fambox = builder.build();
-        drop(fambox);
     }
     #[test]
     fn fambox_builder_drop() {

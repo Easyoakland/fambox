@@ -54,7 +54,11 @@ impl<'de, T: Deserialize<'de>, Output, State, F: FnMut(State, T) -> ControlFlow<
     type Value = Output;
 
     fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-        formatter.write_str("a sequence of values without a length prefix")
+        formatter.write_fmt(format_args!(
+            "a sequence of {} {}",
+            self.len,
+            core::any::type_name::<T>()
+        ))
     }
     fn visit_seq<A>(mut self, seq: A) -> Result<Self::Value, A::Error>
     where
@@ -79,6 +83,7 @@ impl<'de, T: Deserialize<'de>, Output, State, F: FnMut(State, T) -> ControlFlow<
             }
         }
         /// Error message. Using a struct because Serde requires the error message to impl `Visitor`.
+        /// Can't use `&self` because `self.unfinished_state` will be moved out in a partial move.
         struct ExpectedLen(usize);
         impl Visitor<'_> for ExpectedLen {
             type Value = Infallible;
@@ -154,16 +159,13 @@ where
         let fam_len = header.fam_len();
         let builder = match FamBoxBuilder::new(header) {
             core::ops::ControlFlow::Continue(unfinished) => unfinished,
-            core::ops::ControlFlow::Break(finished) => return Ok(finished.build()),
+            core::ops::ControlFlow::Break(finished) => return Ok(finished),
         };
         Ok(seq
             .next_element_seed(DeserializeNoPrefixSlice {
                 len: fam_len,
                 unfinished_state: builder,
-                f: |builder: FamBoxBuilder<H, false>, x: H::Element| match builder.add_element(x) {
-                    ControlFlow::Continue(unfinished) => ControlFlow::Continue(unfinished),
-                    ControlFlow::Break(finished) => ControlFlow::Break(finished.build()),
-                },
+                f: |builder: FamBoxBuilder<H>, x: H::Element| builder.add_element(x),
                 ty: PhantomData,
             })?
             .ok_or_else(|| de::Error::missing_field("fam elements"))?)
