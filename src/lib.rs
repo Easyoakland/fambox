@@ -216,8 +216,8 @@ impl<T> __IncompleteArrayField<T> {
 ///
 /// or else undefined behavior may occur.
 ///
-/// 2. Additionally, if `p` is a valid pointer to `H` then `p` + `size_of::<H>` must be a valid pointer to an `H::Element`.
-/// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or [`H::Element; 0`] as the last field of the `repr(C)` `H`.
+/// 2. Additionally, if `p` is a valid pointer to `H` then `p + size_of::<H>()` must match alignment requirements of `H::Element`.
+/// This can be handled by placing a bindgen generated `__IncompleteArrayField<H::Element>` or `[H::Element; 0]` as the last field of the `repr(C)` `H`.
 pub unsafe trait FamHeader {
     /// The element type of the flexible array member.
     type Element;
@@ -236,17 +236,12 @@ pub unsafe trait FamHeader {
     }
 }
 
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for super::Owned {}
-    impl<'a> Sealed for super::BorrowedMut<'a> {}
-    impl<'a> Sealed for super::BorrowedShared<'a> {}
-}
 /// The [`FamBox`] owns its buffer and will deallocate it when dropped.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Owned;
-#[derive(Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+
 /// The [`FamBox`] has an exclusive reference to its buffer.
+#[derive(Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BorrowedMut<'a>(core::marker::PhantomData<&'a ()>);
 // Don't write Phantom.
 impl<'a> core::fmt::Debug for BorrowedMut<'a> {
@@ -254,8 +249,9 @@ impl<'a> core::fmt::Debug for BorrowedMut<'a> {
         f.debug_struct("BorrowedMut").finish()
     }
 }
-#[derive(Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+
 /// The [`FamBox`] has a shared reference to its buffer.
+#[derive(Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BorrowedShared<'a>(core::marker::PhantomData<&'a ()>);
 // Don't write Phantom.
 impl<'a> core::fmt::Debug for BorrowedShared<'a> {
@@ -263,23 +259,33 @@ impl<'a> core::fmt::Debug for BorrowedShared<'a> {
         f.debug_struct("BorrowedShared").finish()
     }
 }
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::Owned {}
+    impl<'a> Sealed for super::BorrowedMut<'a> {}
+    impl<'a> Sealed for super::BorrowedShared<'a> {}
+}
+
 /// Sealed Marker trait representing if a buffer is [`Owned`] or [`BorrowedMut`] or [`BorrowedShared`].
 pub trait Owner: sealed::Sealed {
     const OWNED: bool;
 }
-/// Sealed Marker trait representing that the buffer is exclusive.
-pub trait Exclusive: Owner {}
 impl Owner for Owned {
     const OWNED: bool = true;
 }
-impl Exclusive for Owned {}
 impl<'a> Owner for BorrowedMut<'a> {
     const OWNED: bool = false;
 }
-impl<'a> Exclusive for BorrowedMut<'a> {}
 impl<'a> Owner for BorrowedShared<'a> {
     const OWNED: bool = false;
 }
+
+/// Sealed Marker trait representing that the buffer is exclusive.
+pub trait Exclusive: Owner {}
+impl Exclusive for Owned {}
+impl<'a> Exclusive for BorrowedMut<'a> {}
+
 /// Sealed Marker trait representing that the buffer is borrowed from somewhere else.
 pub trait Borrowed: Owner {}
 impl<'a> Borrowed for BorrowedMut<'a> {}
@@ -536,7 +542,7 @@ impl<H: FamHeader, O: Owner> AsRef<[H::Element]> for FamBox<H, O> {
 }
 /** General impls for [`Owned`], [`BorrowedMut`], [`BorrowedShared`] */
 impl<H: FamHeader, O: Owner> FamBox<H, O> {
-    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `H::Element` of `H::fam_len()` length.
+    /// Create [`Self`] from a pointer to a buffer containing `H` followed by `[H::Element]` of `H::fam_len()` length.
     /// # Safety
     /// - `ptr` must match the above description.
     /// - the buffer must be valid for the lifetime of `Self`.
