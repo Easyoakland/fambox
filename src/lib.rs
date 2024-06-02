@@ -148,26 +148,26 @@ or a [`FamBoxShared`]/[`FamBoxMut`] can be used to easily access and manipulate 
 # }
 extern "C" {
     fn original_header() -> protocol_msg;
-    fn original_data() -> *const u8;
+    fn original_data() -> NonNull<u8>;
     fn original_data_len() -> usize;
     fn aliased_ptr_from_c() -> NonNull<protocol_msg>;
     fn alloc_in_c() -> NonNull<protocol_msg>;
-    fn free_in_c(ptr: *mut protocol_msg);
+    fn free_in_c(ptr: NonNull<protocol_msg>);
 }
 
 let header_and_fam = unsafe { FamBoxShared::from_raw(aliased_ptr_from_c()) };
 assert_eq!(header_and_fam.as_parts(), unsafe {
-    (&original_header(), unsafe { core::slice::from_raw_parts(original_data(), original_data_len()) })
+    (&original_header(), unsafe { core::slice::from_raw_parts(original_data().as_ptr(), original_data_len()) })
 });
 
 let ptr = unsafe { alloc_in_c() };
 let mut header_and_fam = unsafe { FamBoxMut::from_raw(ptr) };
 assert_eq!(header_and_fam.as_parts(), unsafe {
-    (&original_header(), unsafe { core::slice::from_raw_parts(original_data(), original_data_len()) })
+    (&original_header(), unsafe { core::slice::from_raw_parts(original_data().as_ptr(), original_data_len()) })
 });
 header_and_fam.fam_mut()[2] = 10;
 drop(header_and_fam);
-unsafe { free_in_c(ptr.as_ptr()) }
+unsafe { free_in_c(ptr) }
 ```
 
 # Feature Flags

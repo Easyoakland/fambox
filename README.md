@@ -54,13 +54,13 @@ mod encapsulated_struct {
                 elements: __IncompleteArrayField::new(),
             })
         }
-        pub fn length(&self) -> &u16 {
-            &self.length
+        pub fn length(&self) -> u16 {
+            self.length
         }
     }
 
-    /// Safety:
-    /// `protocol_msg` doesn't expose a mutable setter which would make the length inconsistent.
+    // Safety:
+    // `protocol_msg` doesn't expose a mutable setter which would make the length inconsistent.
     unsafe impl FamHeader for protocol_msg {
         type Element = u8;
 
@@ -77,7 +77,7 @@ let header = encapsulated_struct::protocol_msg::new(1, 2, data_buffer.len())?;
 assert_eq!(header_and_fam.header(), &header);
 assert_eq!(header_and_fam.fam(), data_buffer);
 assert_eq!(
-    usize::from(*header_and_fam.header().length()),
+    usize::from(header_and_fam.header().length()),
     size_of::<protocol_msg>() + core::mem::size_of_val(&data_buffer)
 );
 ```
@@ -85,8 +85,9 @@ assert_eq!(
 or a [`FamBoxShared`]/[`FamBoxMut`] can be used to easily access and manipulate a fam containing struct from c
 ```rust
 extern "C" {
-    fn original_header() -> &'static protocol_msg;
-    fn original_data() -> &'static [u8];
+    fn original_header() -> protocol_msg;
+    fn original_data() -> NonNull<u8>;
+    fn original_data_len() -> usize;
     fn aliased_ptr_from_c() -> NonNull<protocol_msg>;
     fn alloc_in_c() -> NonNull<protocol_msg>;
     fn free_in_c(ptr: NonNull<protocol_msg>);
@@ -94,13 +95,13 @@ extern "C" {
 
 let header_and_fam = unsafe { FamBoxShared::from_raw(aliased_ptr_from_c()) };
 assert_eq!(header_and_fam.as_parts(), unsafe {
-    (original_header(), original_data())
+    (&original_header(), unsafe { core::slice::from_raw_parts(original_data().as_ptr(), original_data_len()) })
 });
 
 let ptr = unsafe { alloc_in_c() };
 let mut header_and_fam = unsafe { FamBoxMut::from_raw(ptr) };
 assert_eq!(header_and_fam.as_parts(), unsafe {
-    (original_header(), original_data())
+    (&original_header(), unsafe { core::slice::from_raw_parts(original_data().as_ptr(), original_data_len()) })
 });
 header_and_fam.fam_mut()[2] = 10;
 drop(header_and_fam);
