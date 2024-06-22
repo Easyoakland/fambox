@@ -170,6 +170,44 @@ where
             })?
             .ok_or_else(|| de::Error::missing_field("fam elements"))?)
     }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::MapAccess<'de>,
+    {
+        let header_label: &str = map
+            .next_key()?
+            .ok_or_else(|| de::Error::missing_field("header"))?;
+        if header_label != "header" {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Str(header_label),
+                &"header",
+            ));
+        }
+        let header: H = map.next_value()?;
+
+        let fam_label: &str = map
+            .next_key()?
+            .ok_or_else(|| de::Error::missing_field("fam"))?;
+        if fam_label != "fam" {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Str(fam_label),
+                &"fam",
+            ));
+        }
+
+        let fam_len = header.fam_len();
+        let builder = match FamBoxBuilder::new(header) {
+            core::ops::ControlFlow::Continue(unfinished) => unfinished,
+            core::ops::ControlFlow::Break(finished) => return Ok(finished),
+        };
+        Ok(map.next_value_seed(DeserializeNoPrefixSlice {
+            len: fam_len,
+            unfinished_state: builder,
+            f: |builder: FamBoxBuilder<H>, x: H::Element| builder.add_element(x),
+            ty: PhantomData,
+        })?)
+    }
 }
 
 impl<'de, H: FamHeader + 'de> Deserialize<'de> for FamBox<H, Owned>
@@ -192,11 +230,12 @@ where
 #[cfg(test)]
 mod tests {
     #[test]
-    fn ser_de() {
+    fn ser_de_seq() {
         use crate::{FamBoxOwned, FamHeader};
         use bincode::Options;
         extern crate std;
         use std::io::Cursor;
+
         #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         struct S(u16, [u8; 0]);
         unsafe impl FamHeader for S {
@@ -206,6 +245,7 @@ mod tests {
                 self.0.into()
             }
         }
+
         let s = S(3, []);
         let fambox = FamBoxOwned::from_fn(s, |i| i as _);
         let opt = bincode::DefaultOptions::new()
@@ -214,6 +254,26 @@ mod tests {
         let mut buf = alloc::vec![0u8; fambox.header().total_size()];
         opt.serialize_into(buf.as_mut_slice(), &fambox).unwrap();
         let de: FamBoxOwned<S> = opt.deserialize_from(Cursor::new(buf)).unwrap();
+        assert_eq!(fambox, de);
+    }
+    #[test]
+    fn ser_de_map() {
+        use crate::{FamBoxOwned, FamHeader};
+
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct S(u16, [u8; 0]);
+        unsafe impl FamHeader for S {
+            type Element = u8;
+
+            fn fam_len(&self) -> usize {
+                self.0.into()
+            }
+        }
+
+        let s = S(3, []);
+        let fambox = FamBoxOwned::from_fn(s, |i| i as _);
+        let s = serde_json::ser::to_string(&fambox).unwrap();
+        let de: FamBoxOwned<S> = serde_json::de::from_str(&s).unwrap();
         assert_eq!(fambox, de);
     }
 }

@@ -822,7 +822,10 @@ mod tests {
         let own = FamBox::from_fn(TEST_MSG, |i| i as _);
         let (header, fam) = own.as_parts();
         assert_eq!(*header, TEST_MSG);
-        assert_eq!(fam, core::array::from_fn::<_, 6, _>(|i| i as _));
+        assert_eq!(
+            fam,
+            core::array::from_fn::<_, 6, _>(|i| i as <MsgHeader as FamHeader>::Element)
+        );
     }
     #[test]
     fn parts_eq() {
