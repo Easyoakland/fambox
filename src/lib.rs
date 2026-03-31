@@ -185,17 +185,21 @@ mod serde;
 
 /// Builder to create a new `FamBoxOwned` 1 element at a time.
 // Also repurposed for its destructor
+#[cfg(feature = "alloc")]
 mod builder;
+#[cfg(feature = "alloc")]
 pub use builder::FamBoxBuilder;
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
 use core::{
     any,
     marker::PhantomData,
-    mem::{self, align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
-    ops::ControlFlow,
+    mem::{self, align_of, align_of_val, size_of, size_of_val},
     ptr::NonNull,
 };
+#[cfg(feature = "alloc")]
+use core::{mem::ManuallyDrop, ops::ControlFlow};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -237,6 +241,7 @@ pub unsafe trait FamHeader {
 }
 
 /// The [`FamBox`] owns its buffer and will deallocate it when dropped.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Owned;
 
@@ -262,6 +267,7 @@ impl<'a> core::fmt::Debug for BorrowedShared<'a> {
 
 mod sealed {
     pub trait Sealed {}
+    #[cfg(feature = "alloc")]
     impl Sealed for super::Owned {}
     impl<'a> Sealed for super::BorrowedMut<'a> {}
     impl<'a> Sealed for super::BorrowedShared<'a> {}
@@ -271,6 +277,7 @@ mod sealed {
 pub trait Owner: sealed::Sealed {
     const OWNED: bool;
 }
+#[cfg(feature = "alloc")]
 impl Owner for Owned {
     const OWNED: bool = true;
 }
@@ -283,6 +290,7 @@ impl<'a> Owner for BorrowedShared<'a> {
 
 /// Sealed Marker trait representing that the buffer is exclusive.
 pub trait Exclusive: Owner {}
+#[cfg(feature = "alloc")]
 impl Exclusive for Owned {}
 impl<'a> Exclusive for BorrowedMut<'a> {}
 
@@ -300,6 +308,7 @@ pub struct FamBox<H: FamHeader, O: Owner> {
 }
 
 /** [`Owned`] impls */
+#[cfg(feature = "alloc")]
 impl<H: FamHeader + Clone> Clone for FamBox<H, Owned>
 where
     H::Element: Clone,
@@ -311,6 +320,7 @@ where
     }
 }
 /** [`Owned`] impls */
+#[cfg(feature = "alloc")]
 impl<H: FamHeader + Default> Default for FamBox<H, Owned>
 where
     H::Element: Default,
@@ -321,10 +331,12 @@ where
     }
 }
 /** [`Owned`] impls */
+#[cfg(feature = "alloc")]
 impl<H: FamHeader> FamBox<H, Owned> {
     /// Allocate a new [`Owned`] buffer and create [`Self`] from a valid header and a callback for initializing the flexible array member.
     ///
     /// `cb` is passed the index being initialized.
+    #[cfg(feature = "alloc")]
     pub fn from_fn<F>(header: H, mut cb: F) -> Self
     where
         F: FnMut(usize) -> H::Element,
@@ -559,6 +571,7 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
 
     /// Copy to a [`FamBoxOwned<H>`] by copying the buffer into a newly allocated buffer.
     // Can't implement `ToOwned` because of conflict with blanket `impl<T: Clone> ToOwned for T {}`
+    #[cfg(feature = "alloc")]
     pub fn into_owned(&self) -> FamBox<H, Owned>
     where
         H: Clone,
@@ -600,25 +613,35 @@ impl<H: FamHeader, O: Owner> FamBox<H, O> {
 impl<H: FamHeader, O: Owner> Drop for FamBox<H, O> {
     #[inline]
     fn drop(&mut self) {
-        // Only deallocate if the buffer is owned (created with the same underlying allocator).
-        // Would like to specialize the drop implementation, but that isn't currently possible in Rust.
-        // See <https://github.com/rust-lang/rust/issues/8142>
-        // and <https://internals.rust-lang.org/t/can-we-fix-drop-to-allow-specialization/12873/5>
-        // So instead do this and expect that `#[inline]` means the impl is optimized out.
-        if !O::OWNED {
-            return;
+        #[cfg(not(feature = "alloc"))]
+        const {
+            assert!(!O::OWNED);
         }
 
-        // Safety: self is valid and so self.ptr is a valid pointer to the buffer.
-        drop(unsafe { FamBoxBuilder::from_built(self.ptr.cast::<H>()) });
+        #[cfg(feature = "alloc")]
+        {
+            // Only deallocate if the buffer is owned (created with the same underlying allocator).
+            // Would like to specialize the drop implementation, but that isn't currently possible in Rust.
+            // See <https://github.com/rust-lang/rust/issues/8142>
+            // and <https://internals.rust-lang.org/t/can-we-fix-drop-to-allow-specialization/12873/5>
+            // So instead do this and expect that `#[inline]` means the impl is optimized out.
+            if !O::OWNED {
+                return;
+            }
+
+            // Safety: self is valid and so self.ptr is a valid pointer to the buffer.
+            drop(unsafe { FamBoxBuilder::from_built(self.ptr.cast::<H>()) });
+        }
     }
 }
 /* Send/Sync impls */
 // Exclusive [`FamBox`] can be used to get `&H`/`&mut H`/`&H::Element`/`&mut H::Element`.
+#[cfg(feature = "alloc")]
 unsafe impl<H: FamHeader + Send> Send for FamBox<H, Owned> where H::Element: Send {}
 unsafe impl<'a, H: FamHeader + Send> Send for FamBox<H, BorrowedMut<'a>> where H::Element: Send {}
 
 // Exclusive [`&FamBox`] can be used to get `&H`/`&H::Element`.
+#[cfg(feature = "alloc")]
 unsafe impl<H: FamHeader + Sync> Sync for FamBox<H, Owned> where H::Element: Sync {}
 unsafe impl<'a, H: FamHeader + Sync> Sync for FamBox<H, BorrowedMut<'a>> where H::Element: Sync {}
 
@@ -628,6 +651,7 @@ unsafe impl<'a, H: FamHeader + Sync> Send for FamBox<H, BorrowedShared<'a>> wher
 unsafe impl<'a, H: FamHeader + Sync> Sync for FamBox<H, BorrowedShared<'a>> where H::Element: Sync {}
 
 /// A [`FamBox`] which owns its buffer.
+#[cfg(feature = "alloc")]
 pub type FamBoxOwned<H> = FamBox<H, Owned>;
 /// A [`FamBox`] which has exclusive access to a buffer.
 pub type FamBoxMut<'a, H> = FamBox<H, BorrowedMut<'a>>;
