@@ -176,7 +176,6 @@ unsafe { free_in_c(ptr) }
 
 // Enable `cargo +nightly doc --all-features` to show all items and their feature requirements.
 // `doccfg` is set by the `build.rs` when supported (nightly)
-#![cfg_attr(doccfg, feature(doc_auto_cfg))]
 #![cfg_attr(doccfg, feature(doc_cfg))]
 #![no_std]
 
