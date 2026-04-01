@@ -1,9 +1,13 @@
-use crate::{builder::FamBoxBuilder, FamBox, FamHeader, Owned, Owner};
+#[cfg(feature = "alloc")]
+use crate::{builder::FamBoxBuilder, Owned};
+use crate::{FamBox, FamHeader, Owner};
+#[cfg(feature = "alloc")]
 use core::{convert::Infallible, marker::PhantomData, ops::ControlFlow};
+#[cfg(feature = "alloc")]
+use serde::de::{self, Deserialize, DeserializeSeed, Visitor};
 use serde::{
-    de::{self, DeserializeSeed, Visitor},
     ser::{SerializeStruct, SerializeTuple},
-    Deserialize, Serialize,
+    Serialize,
 };
 
 /// Serialize slice without length.
@@ -39,6 +43,7 @@ where
 }
 
 /// Deserialize a slice without a stored prefix with runtime length.
+#[cfg(feature = "alloc")]
 struct DeserializeNoPrefixSlice<T, Output, UnfinishedState, F>
 where
     F: FnMut(UnfinishedState, T) -> ControlFlow<Output, UnfinishedState>,
@@ -48,6 +53,7 @@ where
     unfinished_state: UnfinishedState,
     ty: PhantomData<T>,
 }
+#[cfg(feature = "alloc")]
 impl<'de, T: Deserialize<'de>, Output, State, F: FnMut(State, T) -> ControlFlow<Output, State>>
     Visitor<'de> for DeserializeNoPrefixSlice<T, Output, State, F>
 {
@@ -116,6 +122,7 @@ impl<'de, T: Deserialize<'de>, Output, State, F: FnMut(State, T) -> ControlFlow<
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<
         'de,
         T: serde::Deserialize<'de>,
@@ -137,7 +144,9 @@ impl<
 /// Visitor to deserialize the `FamBox`.
 /// Current implementation allocates an additional buffer if more than [`INLINE_SIZE`] elements.
 #[derive(Debug)]
+#[cfg(feature = "alloc")]
 struct FamBoxVisitor<H, O: Owner>(PhantomData<(H, O)>);
+#[cfg(feature = "alloc")]
 impl<'de, H: FamHeader> Visitor<'de> for FamBoxVisitor<H, Owned>
 where
     H: Deserialize<'de>,
@@ -210,6 +219,7 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'de, H: FamHeader + 'de> Deserialize<'de> for FamBox<H, Owned>
 where
     H: Deserialize<'de>,
